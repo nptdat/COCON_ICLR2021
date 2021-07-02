@@ -181,7 +181,6 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
     )
     set_seed(args)  # Added here for reproducibility
 
-    start_self_cocon_lm = False
     start_hist_cocon_lm = False
     start_cycle_ar_cocon_recon = False
     start_other_context_cocon = False
@@ -274,8 +273,6 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             other_sample_transform_input_seq_hidden_states = other_sample_hidden_states[:, hs_len:hs_len+tis_len]
 
             other_sample_context_seq_hidden_states = torch.cat([context_seq_hidden_states[-1:], context_seq_hidden_states[:-1]], dim=0)
-
-
 
             # self_cocon_lm_loss computation, CS: original_context_seq_hidden_states, HS: original_history_seq_hidden_states, TIS: original_transform_input_seq_hidden_states
             # single FF pass, no need for AR

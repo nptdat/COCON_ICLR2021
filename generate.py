@@ -113,11 +113,9 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
         if args.line_by_line_hs:
             original_history_seq = inputs
             original_context_seq = None
-            original_transform_input_seq = None
         else:
             original_history_seq = inputs[:, :args.gen_hs_len]
             original_context_seq = inputs[:, args.gen_hs_len:args.gen_hs_len+args.gen_cs_len]
-            original_transform_input_seq = inputs[:, args.gen_hs_len:args.gen_hs_len+args.gen_tis_len]
 
         if use_only_first_context_source_batch == False and args.use_history_source_as_context_source_for_gen == False:
             if args.enumerate_all_cs_for_each_hs:
@@ -154,10 +152,8 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
         generate_cocon_sample(context_seq, original_history_seq, original_context_seq, inputs, cocon_output_file_path, args, model, tokenizer, cocon_block,
             cocon_output_jsonl_file_path=cocon_output_jsonl_file_path, transform_h_after_layernorm=transform_h_after_layernorm, prepend_history_seq=prepend_history_seq)
 
-
         if nb_generate_cocon_steps >= args.num_cocon_generate - 1:
             break
-
 
         nb_generate_cocon_steps += 1
 
@@ -364,7 +360,6 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             if len(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.shape) > 2:
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.squeeze_()
 
-
             # With varying cs context_attn_bias values, Cocon generation (wgpt2genas2ndcs): with gpt2 generations as 2nd context sequence, with double context generation cut off: cocon with one context after wgpt2genas2ndcs_double_context_len
             cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequences_list = []
             for cs_attn_bias in cocon_wgpt2genas2ndcs_cs_attn_biases:
@@ -477,7 +472,6 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 if len(gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.shape) > 2:
                     gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.squeeze_()
                 gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequences_list.append(gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences)
-
 
 
         cocon_output_text_lines_dict = {}
@@ -622,7 +616,6 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
         return cocon_gen_conbias_ar_output_text
     else:
         return cocon_gen_ar_output_text
-
 
 
 # Use to generate cocon-edited text with either trained or simple cocon op
