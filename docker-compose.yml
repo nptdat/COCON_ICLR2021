@@ -1,0 +1,13 @@
+version: "3.2"
+services:
+  server:
+    runtime: nvidia
+    build:
+      context: .
+    image: "cocon_text_generation:v1.0.0"
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./config.yml:/app/config.yml
+      - ./models/:/app/models/
+      - ~/.cache/torch/transformers:/root/.cache/torch/transformers

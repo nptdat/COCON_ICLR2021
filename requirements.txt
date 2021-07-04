@@ -10,3 +10,6 @@ boto3
 filelock
 tokenizers
 regex
+streamlit
+PyYAML
+pydantic

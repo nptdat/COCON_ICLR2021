@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import logging
 import random
 import numpy as np
@@ -80,3 +81,17 @@ def _rotate_checkpoints(args, checkpoint_prefix="checkpoint", use_mtime=False) -
     for checkpoint in checkpoints_to_be_deleted:
         logger.info("Deleting older checkpoint [{}] due to args.save_total_limit".format(checkpoint))
         shutil.rmtree(checkpoint)
+
+
+def fix_state_dict_naming(state_dict):
+    new_state_dict = OrderedDict()
+
+    for key, value in state_dict.items():
+        if 'con2' in key:
+            new_key = key.replace('con2', 'cocon')
+        # new_key = key_transformation(key)
+            new_state_dict[new_key] = value
+        else:
+            new_state_dict[key] = value
+
+    return new_state_dict
