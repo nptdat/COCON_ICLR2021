@@ -1,16 +1,19 @@
-from typing import List, Dict
+import argparse
+from typing import List, Dict, Optional
 import os
 import logging
 import json
 
 from tqdm import tqdm
 import torch
+from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
+    CoconBlock
 )
 
 from dataset import load_and_cache_examples
@@ -20,8 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 # Use to generate cocon-edited text with either trained or simple cocon op
-def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, cocon_block=None, prefix="",
-    random_sample_data=False, use_only_first_context_source_batch=False, use_only_first_custom_mu_s_input_batch=False, transform_h_after_layernorm=False, prepend_history_seq=True) -> Dict:
+def generate_cocon_compute(
+    args: argparse.Namespace,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+    cocon_block: CoconBlock=None,
+    prefix: str="",
+    random_sample_data: bool=False,
+    use_only_first_context_source_batch=False,
+    transform_h_after_layernorm=False,
+    prepend_history_seq=True
+) -> Dict:
 
     eval_output_dir = args.output_dir
 
@@ -58,8 +70,7 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
     else:
         context_source_dataset = load_and_cache_examples(args, tokenizer, file_path=args.cocon_compute_context_source_data_file, generate=True)
 
-    if args.local_rank in [-1, 0]:
-        os.makedirs(eval_output_dir, exist_ok=True)
+    os.makedirs(eval_output_dir, exist_ok=True)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
@@ -70,8 +81,8 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
     if random_sample_data == True:
-        history_source_sampler = RandomSampler(history_source_dataset) if args.local_rank == -1 else DistributedSampler(history_source_dataset)
-        context_source_sampler = RandomSampler(context_source_dataset) if args.local_rank == -1 else DistributedSampler(context_source_dataset)
+        history_source_sampler = RandomSampler(history_source_dataset)
+        context_source_sampler = RandomSampler(context_source_dataset)
     else:
         history_source_sampler = SequentialSampler(history_source_dataset)
         context_source_sampler = SequentialSampler(context_source_dataset)
@@ -130,8 +141,20 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
 
                     with open(cocon_output_file_path, "a", encoding='utf-8') as f:
                         f.writelines("***HS #{},    CS #{}***\n".format(batch_ind, context_batch_ind))
-                    generate_cocon_sample(context_seq, original_history_seq, original_context_seq, inputs, cocon_output_file_path, args, model, tokenizer, cocon_block,
-                        cocon_output_jsonl_file_path=cocon_output_jsonl_file_path, transform_h_after_layernorm=transform_h_after_layernorm, prepend_history_seq=prepend_history_seq)
+                    generate_cocon_sample(
+                        context_seq,
+                        original_history_seq,
+                        original_context_seq,
+                        inputs,
+                        cocon_output_file_path,
+                        args,
+                        model,
+                        tokenizer,
+                        cocon_block,
+                        cocon_output_jsonl_file_path=cocon_output_jsonl_file_path,
+                        transform_h_after_layernorm=transform_h_after_layernorm,
+                        prepend_history_seq=prepend_history_seq
+                    )
 
                 # go to next hs
                 continue
@@ -149,8 +172,20 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
         with open(cocon_output_file_path, "a", encoding='utf-8') as f:
             f.writelines("***HS #{}***\n".format(batch_ind))
 
-        generate_cocon_sample(context_seq, original_history_seq, original_context_seq, inputs, cocon_output_file_path, args, model, tokenizer, cocon_block,
-            cocon_output_jsonl_file_path=cocon_output_jsonl_file_path, transform_h_after_layernorm=transform_h_after_layernorm, prepend_history_seq=prepend_history_seq)
+        generate_cocon_sample(
+            context_seq,
+            original_history_seq,
+            original_context_seq,
+            inputs,
+            cocon_output_file_path,
+            args,
+            model,
+            tokenizer,
+            cocon_block,
+            cocon_output_jsonl_file_path=cocon_output_jsonl_file_path,
+            transform_h_after_layernorm=transform_h_after_layernorm,
+            prepend_history_seq=prepend_history_seq
+        )
 
         if nb_generate_cocon_steps >= args.num_cocon_generate - 1:
             break
@@ -160,11 +195,30 @@ def generate_cocon_compute(args, model: PreTrainedModel, tokenizer: PreTrainedTo
     return nb_generate_cocon_steps
 
 
-def generate_cocon_sample(context_seq, original_history_seq, original_context_seq, inputs, cocon_output_file_path, args, model, tokenizer, cocon_block,
-    cocon_output_jsonl_file_path=None, transform_h_after_layernorm=False, prepend_history_seq=True,
-    original_dia_history_seq=None, dia_context_seq=None, original_dia_context_seq=None, end_of_text_id=None, single_generation=False, do_cocon_wgpt2genas2ndcs=True, wgpt2genas2ndcs_double_context_len=30,
-    cocon_wgpt2genas2ndcs_cs_attn_biases=[1, 2, 5, 10], cocon_wgpt2genas2ndcs_gpt2out_attn_biases=[-1, -2, -5, -10]):
+def generate_cocon_sample(
+    context_seq: Tensor,
+    original_history_seq: Tensor,
+    original_context_seq: Optional[Tensor],
+    inputs: Tensor,
+    cocon_output_file_path: str,
+    args: argparse.Namespace,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+    cocon_block: CoconBlock,
+    cocon_output_jsonl_file_path: Optional[str]=None,
+    transform_h_after_layernorm: bool=False,
+    prepend_history_seq: bool=True,
+    do_cocon_wgpt2genas2ndcs: bool=True,
+    wgpt2genas2ndcs_double_context_len: int=30,
+    cocon_wgpt2genas2ndcs_cs_attn_biases: List[int]=[1, 2, 5, 10],
+    cocon_wgpt2genas2ndcs_gpt2out_attn_biases: List[int]=[-1, -2, -5, -10]
+) -> str:
+    logger.info("==================================")
+    logger.info("--- original_input_text: {} ".format(tokenizer.decode(inputs[0], clean_up_tokenization_spaces=True)))
+    logger.info("--- original_history_text: {} ".format(tokenizer.decode(original_history_seq[0], clean_up_tokenization_spaces=True)))
+    logger.info("--- context_text: {} ".format(tokenizer.decode(context_seq[0], clean_up_tokenization_spaces=True)))
 
+    tokenizer.decode(inputs[0], )
     with torch.no_grad():
         encoded_prompt = inputs[:, 0:0]
 
@@ -191,8 +245,10 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
         # Remove the batch dimension when returning multiple sequences
         if len(cocon_gen_ar_output_sequences.shape) > 2:
             cocon_gen_ar_output_sequences.squeeze_()
+        logger.info(f"========= 1. cocon_gen_ar_output_sequences: {tokenizer.decode(cocon_gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}\n\n")
 
         if args.context_attn_bias != 0:
+            logger.info("=== BRANCH1")
             # Cocon generation with context_seq as cs, with context_attn_bias
             cocon_gen_conbias_ar_output_sequences = model.generate(
                 input_ids=encoded_prompt,
@@ -220,6 +276,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
 
         # Cocon generation with original_context_seq as cs
         if args.line_by_line_hs == False and original_context_seq is not None:
+            logger.info("=== BRANCH2")
             self_cocon_gen_ar_output_sequences = model.generate(
                 input_ids=encoded_prompt,
                 max_length=args.generate_length + len(encoded_prompt[0]),
@@ -256,6 +313,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             do_sample=True,
             num_return_sequences=args.num_return_sequences,
         )
+        logger.info(f"========= 2. prependgpt2_gen_ar_output_sequences: {tokenizer.decode(prependgpt2_gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}")
 
 
         # Original GPT-2 generation
@@ -271,12 +329,15 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             do_sample=True,
             num_return_sequences=args.num_return_sequences,
         )
+        logger.info(f"========= 3. gen_ar_output_sequences: {tokenizer.decode(gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}")
         # Remove the batch dimension when returning multiple sequences
         if len(gen_ar_output_sequences.shape) > 2:
             gen_ar_output_sequences.squeeze_()
 
+
         # Cocon generation (wgpt2genas2ndcs): with gpt2 generations as 2nd context sequence
         if do_cocon_wgpt2genas2ndcs:
+            logger.info("=== BRANCH3")
             gpt2_gen_output = gen_ar_output_sequences[ :, len(original_history_seq[0]): ]
             cocon_wgpt2genas2ndcs_context_input = [context_seq, gpt2_gen_output]
             cocon_wgpt2genas2ndcs_context_attn_bias = [0, 0]
@@ -297,10 +358,11 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 cocon_after_block_ind=args.output_hidden_for_cocon_after_block_ind,
                 transform_h_after_layernorm=transform_h_after_layernorm,
                 use_only_last_cocon_output_for_ar=args.use_only_last_cocon_output_for_ar,
-                context_attn_bias=cocon_wgpt2genas2ndcs_context_attn_bias,
+                context_attn_bias=cocon_wgpt2genas2ndcs_context_attn_bias, # ?
             )
             if prepend_history_seq:
                 cocon_wgpt2genas2ndcs_gen_ar_output_sequences = torch.cat([original_history_seq, cocon_wgpt2genas2ndcs_gen_ar_output_sequences], dim=1)
+            logger.info(f"========= 4. cocon_wgpt2genas2ndcs_gen_ar_output_sequences: {tokenizer.decode(cocon_wgpt2genas2ndcs_gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}")
             # Remove the batch dimension when returning multiple sequences
             if len(cocon_wgpt2genas2ndcs_gen_ar_output_sequences.shape) > 2:
                 cocon_wgpt2genas2ndcs_gen_ar_output_sequences.squeeze_()
@@ -331,6 +393,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             )
             if prepend_history_seq:
                 cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences = torch.cat([original_history_seq, cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences], dim=1)
+            logger.info(f"========= 5. cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences: {tokenizer.decode(cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}")
             # Remove the batch dimension when returning multiple sequences
             if len(cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences.shape) > 2:
                 cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences.squeeze_()
@@ -356,6 +419,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             )
             if prepend_history_seq:
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences = torch.cat([cocon_wgpt2genas2ndcs_2parts1st_gen_ar_output_sequences, cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences], dim=1)
+            logger.info(f"========= 6. cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences: {tokenizer.decode(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences[0], clean_up_tokenization_spaces=True)}")
             # Remove the batch dimension when returning multiple sequences
             if len(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.shape) > 2:
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.squeeze_()
@@ -473,7 +537,6 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                     gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences.squeeze_()
                 gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequences_list.append(gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences)
 
-
         cocon_output_text_lines_dict = {}
         for generated_sequence_idx, generated_sequence in enumerate(cocon_gen_ar_output_sequences):
             if cocon_output_jsonl_file_path is not None:
@@ -482,7 +545,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             original_input_sequence = inputs[generated_sequence_idx]
             original_input_sequence = original_input_sequence.tolist()
             original_input_text = tokenizer.decode(original_input_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx] = ["original_input_text: {} \n".format(original_input_text)]
+            cocon_output_text_lines_dict[generated_sequence_idx] = ["--- original_input_text: {} \n".format(original_input_text)]
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["original_input_text"] = original_input_text
 
@@ -490,7 +553,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             original_history_sequence = original_history_seq[generated_sequence_idx]
             original_history_sequence = original_history_sequence.tolist()
             original_history_text = tokenizer.decode(original_history_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx].append("original_history_text: {} \n".format(original_history_text))
+            cocon_output_text_lines_dict[generated_sequence_idx].append("--- original_history_text: {} \n".format(original_history_text))
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["original_history_text"] = original_history_text
 
@@ -502,7 +565,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             context_sequence = context_sequence.tolist()
 
             context_text = tokenizer.decode(context_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx].append("context_text: {} \n".format(context_text))
+            cocon_output_text_lines_dict[generated_sequence_idx].append("--- context_text: {} \n".format(context_text))
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["context_text"] = context_text
 
@@ -511,17 +574,17 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 original_context_sequence = original_context_seq[generated_sequence_idx]
                 original_context_sequence = original_context_sequence.tolist()
                 original_context_text = tokenizer.decode(original_context_sequence, clean_up_tokenization_spaces=True)
-                cocon_output_text_lines_dict[generated_sequence_idx].append("original_context_text: {} \n".format(original_context_text))
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- original_context_text: {} \n".format(original_context_text))
                 if cocon_output_jsonl_file_path is not None:
                     cocon_jsonl_output_dict["original_context_text"] = original_context_text
             else:
-                cocon_output_text_lines_dict[generated_sequence_idx].append("original_context_text: None \n")
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- original_context_text: None \n")
 
             # Decode and log cocon AR generated text
             cocon_gen_ar_output_sequence = cocon_gen_ar_output_sequences[generated_sequence_idx]
             cocon_gen_ar_output_sequence = cocon_gen_ar_output_sequence.tolist()
             cocon_gen_ar_output_text = tokenizer.decode(cocon_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon AR output: {} \n".format(cocon_gen_ar_output_text))
+            cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon AR output: {} \n".format(cocon_gen_ar_output_text))
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["cocon_output"] = cocon_gen_ar_output_text
 
@@ -531,7 +594,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 cocon_gen_conbias_ar_output_sequence = cocon_gen_conbias_ar_output_sequences[generated_sequence_idx]
                 cocon_gen_conbias_ar_output_sequence = cocon_gen_conbias_ar_output_sequence.tolist()
                 cocon_gen_conbias_ar_output_text = tokenizer.decode(cocon_gen_conbias_ar_output_sequence, clean_up_tokenization_spaces=True)
-                cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon AR output, context_attn_bias {}: {} \n".format(args.context_attn_bias, cocon_gen_conbias_ar_output_text))
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon AR output, context_attn_bias {}: {} \n".format(args.context_attn_bias, cocon_gen_conbias_ar_output_text))
                 if cocon_output_jsonl_file_path is not None:
                     cocon_jsonl_output_dict["cocon_conbias_output"] = cocon_gen_conbias_ar_output_text
                     cocon_jsonl_output_dict["context_attn_bias"] = args.context_attn_bias
@@ -542,7 +605,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 self_cocon_gen_ar_output_sequence = self_cocon_gen_ar_output_sequences[generated_sequence_idx]
                 self_cocon_gen_ar_output_sequence = self_cocon_gen_ar_output_sequence.tolist()
                 self_cocon_gen_ar_output_text = tokenizer.decode(self_cocon_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-                cocon_output_text_lines_dict[generated_sequence_idx].append("(Self) Cocon AR output: {} \n".format(self_cocon_gen_ar_output_text))
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- (Self) Cocon AR output: {} \n".format(self_cocon_gen_ar_output_text))
                 if cocon_output_jsonl_file_path is not None:
                     cocon_jsonl_output_dict["self_cocon_output"] = self_cocon_gen_ar_output_text
 
@@ -551,7 +614,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             prependgpt2_gen_ar_output_sequence = prependgpt2_gen_ar_output_sequences[generated_sequence_idx]
             prependgpt2_gen_ar_output_sequence = prependgpt2_gen_ar_output_sequence.tolist()
             prependgpt2_gen_output_text = tokenizer.decode(prependgpt2_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx].append("SC prependgpt2 Autoreg-generated output: {} \n".format(prependgpt2_gen_output_text))
+            cocon_output_text_lines_dict[generated_sequence_idx].append("--- SC prependgpt2 Autoreg-generated output: {} \n".format(prependgpt2_gen_output_text))
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["prependgpt2_ar_gen"] = prependgpt2_gen_output_text
 
@@ -560,7 +623,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
             gen_ar_output_sequence = gen_ar_output_sequences[generated_sequence_idx]
             gen_ar_output_sequence = gen_ar_output_sequence.tolist()
             gen_output_text = tokenizer.decode(gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-            cocon_output_text_lines_dict[generated_sequence_idx].append("SC Autoreg-generated output: {} \n".format(gen_output_text))
+            cocon_output_text_lines_dict[generated_sequence_idx].append("--- SC Autoreg-generated output: {} \n".format(gen_output_text))
             if cocon_output_jsonl_file_path is not None:
                 cocon_jsonl_output_dict["sc_gpt2_ar_gen"] = gen_output_text
 
@@ -570,14 +633,14 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                 cocon_wgpt2genas2ndcs_gen_ar_output_sequence = cocon_wgpt2genas2ndcs_gen_ar_output_sequences[generated_sequence_idx]
                 cocon_wgpt2genas2ndcs_gen_ar_output_sequence = cocon_wgpt2genas2ndcs_gen_ar_output_sequence.tolist()
                 cocon_wgpt2genas2ndcs_gen_ar_output_text = tokenizer.decode(cocon_wgpt2genas2ndcs_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-                cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon wgpt2genas2ndcs AR output: {} \n".format(cocon_wgpt2genas2ndcs_gen_ar_output_text))
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon wgpt2genas2ndcs AR output: {} \n".format(cocon_wgpt2genas2ndcs_gen_ar_output_text))
                 if cocon_output_jsonl_file_path is not None:
                     cocon_jsonl_output_dict["cocon_wgpt2genas2ndcs_output"] = cocon_wgpt2genas2ndcs_gen_ar_output_text
 
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequence = cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequences[generated_sequence_idx]
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequence = cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequence.tolist()
                 cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_text = tokenizer.decode(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-                cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon wgpt2genas2ndcs (2 parts) AR output: {} \n".format(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_text))
+                cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon wgpt2genas2ndcs (2 parts) AR output: {} \n".format(cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_text))
                 if cocon_output_jsonl_file_path is not None:
                     cocon_jsonl_output_dict["cocon_wgpt2genas2ndcs_2parts_output"] = cocon_wgpt2genas2ndcs_2parts2nd_gen_ar_output_text
 
@@ -587,7 +650,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                     cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence = cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequences[generated_sequence_idx]
                     cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence = cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence.tolist()
                     cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text = tokenizer.decode(cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-                    cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon wgpt2genas2ndcs (2 parts) AR output, cs_attn_bias {}: {} \n".format(cs_attn_bias, cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text))
+                    cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon wgpt2genas2ndcs (2 parts) AR output, cs_attn_bias {}: {} \n".format(cs_attn_bias, cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text))
                     if cocon_output_jsonl_file_path is not None:
                         cocon_jsonl_output_dict["cocon_wgpt2genas2ndcs_2parts_output_cs_attn_bias{}".format(cs_attn_bias)] = cs_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text
 
@@ -596,7 +659,7 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
                     gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence = gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequences[generated_sequence_idx]
                     gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence = gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence.tolist()
                     gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text = tokenizer.decode(gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_sequence, clean_up_tokenization_spaces=True)
-                    cocon_output_text_lines_dict[generated_sequence_idx].append("Cocon wgpt2genas2ndcs (2 parts) AR output, gpt2out_attn_bias {}: {} \n".format(gpt2out_attn_bias, gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text))
+                    cocon_output_text_lines_dict[generated_sequence_idx].append("--- Cocon wgpt2genas2ndcs (2 parts) AR output, gpt2out_attn_bias {}: {} \n".format(gpt2out_attn_bias, gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text))
                     if cocon_output_jsonl_file_path is not None:
                         cocon_jsonl_output_dict["cocon_wgpt2genas2ndcs_2parts_output_gpt2out_attn_bias{}".format(gpt2out_attn_bias)] = gpt2out_attn_biased_cocon_wgpt2genas2ndcs_2parts_gen_ar_output_text
 
@@ -612,6 +675,8 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
     with open(cocon_output_file_path, "a", encoding='utf-8') as f:
         f.writelines(cocon_output_text_lines)
 
+
+    logger.info(f"========= {cocon_gen_ar_output_text=}")
     if args.context_attn_bias != 0:
         return cocon_gen_conbias_ar_output_text
     else:
@@ -619,11 +684,15 @@ def generate_cocon_sample(context_seq, original_history_seq, original_context_se
 
 
 # Use to generate cocon-edited text with either trained or simple cocon op
-def generate_single_cocon_example(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, cocon_block=None, prefix="",
-    random_sample_data=False, use_only_first_context_source_batch=False, use_only_first_custom_mu_s_input_batch=False, transform_h_after_layernorm=False, prepend_history_seq=True) -> Dict:
-
-    eval_output_dir = args.output_dir
-
+def generate_single_cocon_example(
+    args: argparse.Namespace,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+    cocon_block: Optional[CoconBlock]=None,
+    prefix: str="",
+    transform_h_after_layernorm: bool=False,
+    prepend_history_seq: bool=True
+) -> Dict:
     cocon_output_file_path = os.path.join(args.output_dir, args.cocon_output_filename)
     if os.path.exists(cocon_output_file_path):
         if args.append_cocon_output_files:
@@ -685,8 +754,20 @@ def generate_single_cocon_example(args, model: PreTrainedModel, tokenizer: PreTr
     inputs = encoded_prompt
     inputs = inputs.to(args.device)
 
-    cocon_output_text = generate_cocon_sample(context_seq, original_history_seq, original_context_seq, inputs, cocon_output_file_path, args, model, tokenizer, cocon_block,
-        cocon_output_jsonl_file_path=cocon_output_jsonl_file_path, transform_h_after_layernorm=transform_h_after_layernorm, prepend_history_seq=prepend_history_seq, single_generation=True)
+    cocon_output_text = generate_cocon_sample(
+        context_seq,
+        original_history_seq,
+        original_context_seq,
+        inputs,
+        cocon_output_file_path,
+        args,
+        model,
+        tokenizer,
+        cocon_block,
+        cocon_output_jsonl_file_path=cocon_output_jsonl_file_path,
+        transform_h_after_layernorm=transform_h_after_layernorm,
+        prepend_history_seq=prepend_history_seq
+    )
 
     logger.info("cocon_output_text: {} *****".format(cocon_output_text))
 

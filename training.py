@@ -19,21 +19,18 @@ from dataset import load_and_cache_examples
 from utils.utils import _clear_checkpoints, _rotate_checkpoints
 
 
-logger = logging.getLogger(__name__)
-
-try:
-    from torch.utils.tensorboard import SummaryWriter
-except ImportError:
-    from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 from utils.utils import set_seed, to_one_hot
 
 
+logger = logging.getLogger(__name__)
+
+
 def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=None, model_config=None, transform_h_after_layernorm=False):
     """ Train the model """
-    if args.local_rank in [-1, 0]:
-        tb_log_dir = os.path.join(args.output_dir, 'runs')
-        tb_writer = SummaryWriter(tb_log_dir)
+    tb_log_dir = os.path.join(args.output_dir, 'runs')
+    tb_writer = SummaryWriter(tb_log_dir)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
 
@@ -57,7 +54,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             return pad_sequence(examples, batch_first=True)
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
-    train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
+    train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(
         train_dataset, sampler=train_sampler, batch_size=args.train_batch_size, collate_fn=collate
     )
@@ -121,35 +118,12 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
         cocon_block_optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "cocon_block_optimizer.pt")))
         cocon_block_scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "cocon_block_scheduler.pt")))
 
-    if args.fp16:
-        try:
-            from apex import amp
-        except ImportError:
-            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-        cocon_block, cocon_block_optimizer = amp.initialize(cocon_block, cocon_block_optimizer, opt_level=args.fp16_opt_level)
-        if args.lambda_adv > 0:
-            disc_model, disc_model_optimizer = amp.initialize(disc_model, disc_model_optimizer, opt_level=args.fp16_opt_level)
-        model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
-
     # multi-gpu training (should be after apex fp16 initialization)
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
         cocon_block = torch.nn.DataParallel(cocon_block)
         if args.lambda_adv > 0:
             disc_model = torch.nn.DataParallel(disc_model)
-
-    # Distributed training (should be after apex fp16 initialization)
-    if args.local_rank != -1:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True
-        )
-        cocon_block = torch.nn.parallel.DistributedDataParallel(
-            cocon_block, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True
-        )
-        if args.lambda_adv > 0:
-            disc_model = torch.nn.parallel.DistributedDataParallel(
-                disc_model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True
-            )
 
     # Train!
     logger.info("***** Running training *****")
@@ -160,7 +134,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
         "  Total train batch size (w. parallel, distributed & accumulation) = %d",
         args.train_batch_size
         * args.gradient_accumulation_steps
-        * (torch.distributed.get_world_size() if args.local_rank != -1 else 1),
+        * 1,
     )
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
@@ -170,15 +144,12 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
     steps_trained_in_current_epoch = 0
 
     tr_loss, logging_loss = 0.0, 0.0
-    disc_loss, logging_disc_loss = 0.0, 0.0
 
     model_to_resize = model.module if hasattr(model, "module") else model  # Take care of distributed/parallel training
     model_to_resize.resize_token_embeddings(len(tokenizer))
 
     model.zero_grad()
-    train_iterator = trange(
-        epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
-    )
+    train_iterator = trange(epochs_trained, int(args.num_train_epochs), desc="Epoch")
     set_seed(args)  # Added here for reproducibility
 
     start_hist_cocon_lm = False
@@ -199,7 +170,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
                 train_dataset, sampler=train_sampler, batch_size=args.train_cycle_ar_cocon_recon_batch_size, collate_fn=collate
             )
 
-        epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
+        epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for step, batch in enumerate(epoch_iterator):
             # Skip past any already trained steps if resuming training
             if steps_trained_in_current_epoch > 0:
@@ -230,16 +201,11 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             lm_labels = lm_labels.to(args.device)
 
             original_context_seq = inputs[:, hs_len:hs_len+cs_len]
-            original_history_seq = inputs[:, :hs_len]
-            original_transform_input_seq = inputs[:, hs_len:hs_len+tis_len]
 
             # use batch with + 1 index as other sample
             other_sample_inputs = torch.cat([inputs[-1:], inputs[:-1]], dim=0)
             other_sample_lm_labels = other_sample_inputs[:, :hs_len+tis_len]
-
-            other_sample_context_seq = other_sample_inputs[:, hs_len:hs_len+cs_len]
             other_sample_history_seq = other_sample_inputs[:, :hs_len]
-            other_sample_transform_input_seq = other_sample_inputs[:, hs_len:hs_len+tis_len]
 
             model.eval()
 
@@ -270,9 +236,6 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             # use batch with + 1 index as other sample
             other_sample_hidden_states = torch.cat([hidden_states[-1:], hidden_states[:-1]], dim=0)
             other_sample_history_seq_hidden_states = other_sample_hidden_states[:, :hs_len]
-            other_sample_transform_input_seq_hidden_states = other_sample_hidden_states[:, hs_len:hs_len+tis_len]
-
-            other_sample_context_seq_hidden_states = torch.cat([context_seq_hidden_states[-1:], context_seq_hidden_states[:-1]], dim=0)
 
             # self_cocon_lm_loss computation, CS: original_context_seq_hidden_states, HS: original_history_seq_hidden_states, TIS: original_transform_input_seq_hidden_states
             # single FF pass, no need for AR
@@ -289,7 +252,6 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
                     all_masked_indices = torch.bernoulli(prob_matrix).bool()
 
                     prob_allocated_cs = args.self_cocon_lm_cs_mask_prob / total_mask_prob
-                    # prob_allocated_tis = args.self_cocon_lm_tis_mask_prob / total_mask_prob
                     allocated_cs_prob_matrix = torch.full([original_context_seq_hidden_states.shape[0], max_cs_tis_len], prob_allocated_cs)
                     allocated_cs_indices = torch.bernoulli(allocated_cs_prob_matrix).bool()
 
@@ -326,7 +288,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
             self_cocon_lm_loss = self_cocon_lm_tail_outputs[0]
 
-            if args.track_loss_gradnorms and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+            if args.track_loss_gradnorms and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                 self_cocon_lm_loss_grad = torch.autograd.grad(self_cocon_lm_loss, cocon_block.cocon_attn.c_attn.weight, retain_graph=True)[0]
                 self_cocon_lm_loss_gradnorm = torch.norm(self_cocon_lm_loss_grad)
 
@@ -344,7 +306,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
                     logger.info( "epoch_ind_to_start_hist_cocon_lm: {}, epoch_ind: {}".format(args.epoch_ind_to_start_hist_cocon_lm, epoch_ind))
                     start_hist_cocon_lm = True
 
-            if start_hist_cocon_lm or (args.track_hist_cocon_lm_loss and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0):
+            if start_hist_cocon_lm or (args.track_hist_cocon_lm_loss and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0):
                 hist_cocon_hidden_states = cocon_block(original_transform_input_seq_hidden_states, context_seq=None, history_seq=original_history_seq_hidden_states, include_sos_output=True) # [N, L, C]
 
                 # concat cocon output with original history_seq
@@ -362,7 +324,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
                 hist_cocon_lm_loss = hist_cocon_lm_tail_outputs[0]
 
-                if args.track_loss_gradnorms and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+                if args.track_loss_gradnorms and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                     hist_cocon_lm_loss_grad = torch.autograd.grad(hist_cocon_lm_loss, cocon_block.cocon_attn.c_attn.weight, retain_graph=True)[0]
                     hist_cocon_lm_loss_gradnorm = torch.norm(hist_cocon_lm_loss_grad)
 
@@ -503,7 +465,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
                     cycle_ar_cocon_recon_lm_loss = cycle_ar_cocon_recon_lm_tail_outputs[0]
 
-                    if args.track_loss_gradnorms and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+                    if args.track_loss_gradnorms and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                         cycle_ar_cocon_recon_lm_loss_grad = torch.autograd.grad(cycle_ar_cocon_recon_lm_loss, cocon_block.cocon_attn.c_attn.weight, retain_graph=True)[0]
                         cycle_ar_cocon_recon_lm_loss_gradnorm = torch.norm(cycle_ar_cocon_recon_lm_loss_grad)
 
@@ -513,7 +475,6 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
             # context_ar_cocon_lm_loss computation, Step 1 CS: other_sample_context_seq_hidden_states, HS: other_sample_history_seq_hidden_states, TIS: cocon_th_gen_output (AR generated)
             # cat other_sample_history_seq_embeds with ar_cocon_final_output_embeds
-            # hist_plus_cocon_output_hidden_states = torch.cat([other_sample_history_seq_hidden_states, cocon_th_gen_output], dim=1)
             if args.lambda_other_context_cocon_lm_loss > 0 and epoch_ind == args.epoch_ind_to_start_other_context_cocon and step == args.step_ind_to_start_other_context_cocon:
                 logger.info( "starting cycle_ar_cocon_recon_lm learning")
                 logger.info( "step_ind_to_start_other_context_cocon: {}, step: {}".format(args.step_ind_to_start_other_context_cocon, step))
@@ -538,7 +499,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
                 other_context_cocon_lm_loss = other_context_cocon_lm_tail_outputs[0]
 
-                if args.track_loss_gradnorms and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+                if args.track_loss_gradnorms and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                     other_context_cocon_lm_loss_grad = torch.autograd.grad(other_context_cocon_lm_loss, cocon_block.cocon_attn.c_attn.weight, retain_graph=True)[0]
                     other_context_cocon_lm_loss_gradnorm = torch.norm(other_context_cocon_lm_loss_grad)
 
@@ -568,7 +529,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
                         d_fake_loss, d_fake_logits = disc_model(disc_fake_input, fake_disc_label)
                         d_real_loss, d_real_logits = disc_model(disc_real_input, real_disc_label)
 
-                        if args.track_loss_gradnorms and args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+                        if args.track_loss_gradnorms and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                             adv_loss_grad = torch.autograd.grad((-1*d_fake_loss - d_real_loss), cocon_block.cocon_attn.c_attn.weight, retain_graph=True)[0]
                             adv_loss_gradnorm = torch.norm(adv_loss_grad)
 
@@ -582,25 +543,15 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             if args.gradient_accumulation_steps > 1:
                 total_loss = total_loss / args.gradient_accumulation_steps
 
-            if args.fp16:
-                with amp.scale_loss(total_loss, cocon_block_optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                total_loss.backward()
+            total_loss.backward()
 
             tr_loss += total_loss.item()
 
             if (step + 1) % args.gradient_accumulation_steps == 0:
-                if args.fp16:
-                    torch.nn.utils.clip_grad_norm_(amp.master_params(cocon_block_optimizer), args.max_grad_norm)
-                else:
-                    torch.nn.utils.clip_grad_norm_(cocon_block.parameters(), args.max_grad_norm)
-
-                if args.local_rank in [-1, 0] and args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
+                torch.nn.utils.clip_grad_norm_(cocon_block.parameters(), args.max_grad_norm)
+                if args.logging_steps > 0 and (global_step+1) % args.logging_steps == 0:
                     # Log metrics
-                    if (
-                        args.local_rank == -1 and args.evaluate_during_training
-                    ):  # Only evaluate when single GPU otherwise metrics may not average well
+                    if args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
                         results = evaluate(args, model, tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, (global_step+1))
@@ -670,42 +621,32 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
                 if args.gradient_accumulation_steps > 1:
                     total_disc_loss = total_disc_loss / args.gradient_accumulation_steps
 
-                if args.fp16:
-                    with amp.scale_loss(total_disc_loss, disc_model_optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    total_disc_loss.backward()
-
+                total_disc_loss.backward()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
-                    if args.fp16:
-                        torch.nn.utils.clip_grad_norm_(amp.master_params(disc_model_optimizer), args.max_grad_norm)
-                    else:
-                        torch.nn.utils.clip_grad_norm_(disc_model.parameters(), args.max_grad_norm)
-                if args.local_rank in [-1, 0]:
-                    if args.logging_steps > 0 and step % args.logging_steps == 0: # to sync with disc update step
-                        tb_writer.add_scalar("LR/disc_lr", disc_model_scheduler.get_lr()[0], (global_step+1))
-                        tb_writer.add_scalar("LOSS/disc_loss", total_disc_loss.item(), (global_step+1))
+                    torch.nn.utils.clip_grad_norm_(disc_model.parameters(), args.max_grad_norm)
 
-                        tb_writer.add_scalar("LOSS/disc_fake_loss", d_fake_loss.item(), (global_step+1))
-                        tb_writer.add_scalar("LOSS/disc_real_loss", d_real_loss.item(), (global_step+1))
+                if args.logging_steps > 0 and step % args.logging_steps == 0: # to sync with disc update step
+                    tb_writer.add_scalar("LR/disc_lr", disc_model_scheduler.get_lr()[0], (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_loss", total_disc_loss.item(), (global_step+1))
 
-                        tb_writer.add_scalar("GRADIENT/DISCLOSS_discmodel_conv3_gradnorm", torch.norm(disc_model.conv_layers[2].weight.grad), (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_fake_loss", d_fake_loss.item(), (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_real_loss", d_real_loss.item(), (global_step+1))
 
-                        tb_writer.add_scalar("ACC/disc_fake_acc", disc_fake_acc, (global_step+1))
-                        tb_writer.add_scalar("ACC/disc_real_acc", disc_real_acc, (global_step+1))
+                    tb_writer.add_scalar("GRADIENT/DISCLOSS_discmodel_conv3_gradnorm", torch.norm(disc_model.conv_layers[2].weight.grad), (global_step+1))
 
-                        disc_loss = logging_disc_loss
-                    elif (adv_disc_opt_step * args.disc_update_interval) < args.steps_to_closely_monitor_adv and step % (args.logging_steps // 50) == 0:
-                        tb_writer.add_scalar("LR/disc_lr", disc_model_scheduler.get_lr()[0], (global_step+1))
-                        tb_writer.add_scalar("LOSS/disc_loss", total_disc_loss.item(), (global_step+1))
+                    tb_writer.add_scalar("ACC/disc_fake_acc", disc_fake_acc, (global_step+1))
+                    tb_writer.add_scalar("ACC/disc_real_acc", disc_real_acc, (global_step+1))
+                elif (adv_disc_opt_step * args.disc_update_interval) < args.steps_to_closely_monitor_adv and step % (args.logging_steps // 50) == 0:
+                    tb_writer.add_scalar("LR/disc_lr", disc_model_scheduler.get_lr()[0], (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_loss", total_disc_loss.item(), (global_step+1))
 
-                        tb_writer.add_scalar("LOSS/disc_fake_loss", d_fake_loss.item(), (global_step+1))
-                        tb_writer.add_scalar("LOSS/disc_real_loss", d_real_loss.item(), (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_fake_loss", d_fake_loss.item(), (global_step+1))
+                    tb_writer.add_scalar("LOSS/disc_real_loss", d_real_loss.item(), (global_step+1))
 
-                        tb_writer.add_scalar("GRADIENT/DISCLOSS_discmodel_conv3_gradnorm", torch.norm(disc_model.conv_layers[2].weight.grad), (global_step+1))
+                    tb_writer.add_scalar("GRADIENT/DISCLOSS_discmodel_conv3_gradnorm", torch.norm(disc_model.conv_layers[2].weight.grad), (global_step+1))
 
-                        tb_writer.add_scalar("ACC/disc_fake_acc", disc_fake_acc, (global_step+1))
-                        tb_writer.add_scalar("ACC/disc_real_acc", disc_real_acc, (global_step+1))
+                    tb_writer.add_scalar("ACC/disc_fake_acc", disc_fake_acc, (global_step+1))
+                    tb_writer.add_scalar("ACC/disc_real_acc", disc_real_acc, (global_step+1))
 
 
                 disc_model_optimizer.step()
@@ -716,7 +657,7 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
 
 
             # Save model
-            if args.local_rank in [-1, 0] and args.save_steps > 0 and step % args.save_steps == 0: # to sync with gen/disc update step
+            if args.save_steps > 0 and step % args.save_steps == 0: # to sync with gen/disc update step
                 checkpoint_prefix = "cocon_block_checkpoint"
                 if first_save:
                     _clear_checkpoints(args, checkpoint_prefix)
@@ -749,16 +690,14 @@ def train_cocon(args, train_dataset, model, tokenizer, cocon_block, disc_model=N
             train_iterator.close()
             break
 
-    if args.local_rank in [-1, 0]:
-        tb_writer.close()
+    tb_writer.close()
 
     return global_step, tr_loss / global_step
 
 
 def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedTokenizer) -> Tuple[int, float]:
     """ Train the model """
-    if args.local_rank in [-1, 0]:
-        tb_writer = SummaryWriter()
+    tb_writer = SummaryWriter()
 
     if args.per_gpu_train_lm_batch_size <= 0:
         args.per_gpu_train_lm_batch_size = args.per_gpu_train_batch_size
@@ -769,7 +708,7 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
             return pad_sequence(examples, batch_first=True)
         return pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id)
 
-    train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
+    train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(
         train_dataset, sampler=train_sampler, batch_size=args.train_lm_batch_size, collate_fn=collate
     )
@@ -804,22 +743,9 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
-    if args.fp16:
-        try:
-            from apex import amp
-        except ImportError:
-            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-        model, optimizer = amp.initialize(model, optimizer, opt_level=args.fp16_opt_level)
-
     # multi-gpu training (should be after apex fp16 initialization)
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
-
-    # Distributed training (should be after apex fp16 initialization)
-    if args.local_rank != -1:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.local_rank], output_device=args.local_rank, find_unused_parameters=True
-        )
 
     # Train!
     logger.info("***** Running LM training *****")
@@ -830,7 +756,7 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
         "  Total train batch size (w. parallel, distributed & accumulation) = %d",
         args.train_lm_batch_size
         * args.gradient_accumulation_steps
-        * (torch.distributed.get_world_size() if args.local_rank != -1 else 1),
+        * 1,
     )
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
@@ -860,13 +786,11 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
     model_to_resize.resize_token_embeddings(len(tokenizer))
 
     model.zero_grad()
-    train_iterator = trange(
-        epochs_trained, int(args.num_lm_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
-    )
+    train_iterator = trange(epochs_trained, int(args.num_lm_train_epochs), desc="Epoch")
     set_seed(args)  # Added here for reproducibility
     first_save = True
     for _ in train_iterator:
-        epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
+        epoch_iterator = tqdm(train_dataloader, desc="Iteration")
         for step, batch in enumerate(epoch_iterator):
             # Skip past any already trained steps if resuming training
             if steps_trained_in_current_epoch > 0:
@@ -897,28 +821,19 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
 
-            if args.fp16:
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                loss.backward()
+            loss.backward()
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
-                if args.fp16:
-                    torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
-                else:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
                 global_step += 1
 
-                if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
+                if args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
-                    if (
-                        args.local_rank == -1 and args.evaluate_during_training
-                    ):  # Only evaluate when single GPU otherwise metrics may not average well
+                    if args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
                         results = evaluate(args, model, tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
@@ -926,7 +841,7 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
                     tb_writer.add_scalar("LM/loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                     logging_loss = tr_loss
 
-                if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
+                if args.save_steps > 0 and global_step % args.save_steps == 0:
                     checkpoint_prefix = "checkpoint"
                     if first_save:
                         _clear_checkpoints(args, checkpoint_prefix)
@@ -957,8 +872,7 @@ def train_lm(args, train_dataset, model: PreTrainedModel, tokenizer: PreTrainedT
             train_iterator.close()
             break
 
-    if args.local_rank in [-1, 0]:
-        tb_writer.close()
+    tb_writer.close()
 
     return global_step, tr_loss / global_step
 
@@ -969,8 +883,7 @@ def evaluate(args, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, prefi
     eval_output_dir = args.output_dir
     eval_dataset = load_and_cache_examples(args, tokenizer, evaluate=True, text_json_key=args.text_json_key, prepended_text_to_remove=args.prepended_text_to_remove)
 
-    if args.local_rank in [-1, 0]:
-        os.makedirs(eval_output_dir, exist_ok=True)
+    os.makedirs(eval_output_dir, exist_ok=True)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly

@@ -93,7 +93,6 @@ def get_args():
         help="Transformation input sequence length."
     )
 
-
     parser.add_argument(
         "--gen_cs_len",
         default=None,
@@ -185,18 +184,6 @@ def get_args():
     )
     parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
 
-    parser.add_argument(
-        "--fp16",
-        action="store_true",
-        help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit",
-    )
-    parser.add_argument(
-        "--fp16_opt_level",
-        type=str,
-        default="O1",
-        help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
-        "See details at https://nvidia.github.io/apex/amp.html",
-    )
 
     parser.add_argument(
         "--compute_meanvars_before_layernorm",
@@ -404,10 +391,6 @@ def get_args():
     parser.add_argument("--use_global_gate", action="store_true", help="Whether to use global sequence gate for cocon_block.")
     parser.add_argument("--split_c_proj", action="store_true", help="Whether to use separate c_proj after attn op for mu and sigma.")
 
-    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
-    parser.add_argument("--server_ip", type=str, default="", help="For distant debugging.")
-    parser.add_argument("--server_port", type=str, default="", help="For distant debugging.")
-
     parser.add_argument("--generate_length", type=int, default=20)
     parser.add_argument(
         "--temperature",
@@ -506,7 +489,6 @@ def get_args():
 
     parser.add_argument("--min_hs_tis_split_offset", type=int, default=0, help="Min number of index to offset from hs_len to split train samples into hs/tis")
     parser.add_argument("--max_hs_tis_split_offset", type=int, default=0, help="Max number of index to offset from hs_len to split train samples into hs/tis")
-
     parser.add_argument("--track_hist_cocon_lm_loss", action="store_true", help="Whether to track hist_cocon_lm_loss for logging even without using for training.")
 
     parser.add_argument(
@@ -530,7 +512,6 @@ def get_args():
         action="store_true",
         help="Whether to prepend bos_token to history seq (prompt text) during cocon generation.",
     )
-
 
     parser.add_argument("--text_json_key", type=str, default="text", help="key for sample text in data json object")
 

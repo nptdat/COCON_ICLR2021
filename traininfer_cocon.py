@@ -94,8 +94,7 @@ def evaluate_dist_scores(args, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     eval_dataset = load_and_cache_examples(args, tokenizer, evaluate=True, text_json_key=args.text_json_key, prepended_text_to_remove=args.prepended_text_to_remove)
 
-    if args.local_rank in [-1, 0]:
-        os.makedirs(eval_output_dir, exist_ok=True)
+    os.makedirs(eval_output_dir, exist_ok=True)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
@@ -192,47 +191,25 @@ def main():
             )
         )
 
-    # Setup distant debugging if needed
-    if args.server_ip and args.server_port:
-        # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
-        import ptvsd
-
-        print("Waiting for debugger attach")
-        ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
-        ptvsd.wait_for_attach()
-
     # Setup CUDA, GPU & distributed training
-    if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        args.n_gpu = torch.cuda.device_count()
-    else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda", args.local_rank)
-        torch.distributed.init_process_group(backend="nccl")
-        args.n_gpu = 1
+    device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+    args.n_gpu = torch.cuda.device_count()
     args.device = device
 
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
+        level=logging.INFO,
     )
     logger.warning(
-        "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-        args.local_rank,
+        "Process device: %s, n_gpu: %s",
         device,
         args.n_gpu,
-        bool(args.local_rank != -1),
-        args.fp16,
     )
 
     # Set seed
     set_seed(args)
-
-    # Load pretrained model and tokenizer
-    if args.local_rank not in [-1, 0]:
-        torch.distributed.barrier()  # Barrier to make sure only the first process in distributed training download model & vocab
 
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
 
@@ -297,24 +274,13 @@ def main():
             disc_model = HDiscriminator(config=config)
             disc_model.to(args.device)
 
-    if args.local_rank == 0:
-        torch.distributed.barrier()  # End of barrier to make sure only the first process in distributed training download model & vocab
-
     logger.info("Training/evaluation parameters %s", args)
 
     # Training
     if args.do_train:
-        if args.local_rank not in [-1, 0]:
-            torch.distributed.barrier()  # Barrier to make sure only the first process in distributed training process the dataset, and the others will use the cache
-
         train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False)
-
-        if args.local_rank == 0:
-            torch.distributed.barrier()
-
         if args.num_lm_train_epochs > 0:
             global_step, tr_loss = train_lm(args, train_dataset, model, tokenizer)
-
 
         if args.only_lm == False:
             if args.lambda_adv > 0:
@@ -324,10 +290,9 @@ def main():
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Saving best-practices: if you use save_pretrained for the model and tokenizer, you can reload them using from_pretrained()
-    if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+    if args.do_train:
         # Create output directory if needed
-        if args.local_rank in [-1, 0]:
-            os.makedirs(args.output_dir, exist_ok=True)
+        os.makedirs(args.output_dir, exist_ok=True)
 
         logger.info("Saving model checkpoint to %s", args.output_dir)
         if args.num_lm_train_epochs > 0 or args.save_lm_model:
@@ -356,7 +321,7 @@ def main():
 
     # Compute cocon text: generate cocon text
     results = {}
-    if args.do_cocon_compute and args.local_rank in [-1, 0] and args.only_lm == False:
+    if args.do_cocon_compute and args.only_lm == False:
         if args.gen_cs_len is None:
             args.gen_cs_len = args.cs_len
         if args.gen_hs_len is None:
@@ -406,7 +371,7 @@ def main():
 
     # Single cocon generation: generate single cocon text
     results = {}
-    if args.do_single_cocon_generation and args.local_rank in [-1, 0] and args.only_lm == False:
+    if args.do_single_cocon_generation and args.only_lm == False:
         if not args.eval_compute_without_checkpoint:
             checkpoints = [args.output_dir]
         else:
@@ -442,11 +407,11 @@ def main():
             model.to(args.device)
             cocon_block.to(args.device)
 
-            generate_steps = generate_single_cocon_example(args, model, tokenizer, cocon_block=cocon_block, prefix=prefix, use_only_first_context_source_batch=args.use_only_first_context_source_batch, transform_h_after_layernorm=args.transform_h_after_layernorm)
+            generate_steps = generate_single_cocon_example(args, model, tokenizer, cocon_block=cocon_block, prefix=prefix, transform_h_after_layernorm=args.transform_h_after_layernorm)
 
     # Evaluation: evaluate model on loss values
     results = {}
-    if args.do_eval and args.local_rank in [-1, 0]:
+    if args.do_eval:
         if not args.eval_compute_without_checkpoint:
             checkpoints = [args.output_dir]
         else:
@@ -479,7 +444,7 @@ def main():
             results.update(result)
 
      # Evaluation: evaluate model on loss values
-    if args.do_eval_dist and args.local_rank in [-1, 0]:
+    if args.do_eval_dist:
         if not args.eval_compute_without_checkpoint:
             checkpoints = [args.output_dir]
         else:
