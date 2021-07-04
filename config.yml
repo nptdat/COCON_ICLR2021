@@ -1,0 +1,9 @@
+generate_length: 20
+temperature: 1.0
+k: 0
+p: 0.9
+repetition_penalty: 1.0
+num_return_sequences: 1
+output_hidden_for_cocon_after_block_ind: 6
+use_only_last_cocon_output_for_ar: false
+context_attn_bias: -10
