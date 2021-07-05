@@ -13,3 +13,5 @@ regex
 streamlit
 PyYAML
 pydantic
+requests
+fastapi
