@@ -1,0 +1,18 @@
+FROM python:3.8-slim
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl sudo && \
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements-app.txt .
+RUN pip install -r requirements-app.txt
+
+COPY schema schema
+COPY utils utils
+COPY demo_app.py .
+
+CMD [ "streamlit", "run", "demo_app.py" ]
+EXPOSE 8501

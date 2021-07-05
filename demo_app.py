@@ -13,13 +13,11 @@ import streamlit as st
 import yaml
 import requests
 
-from utils.utils import set_seed, fix_state_dict_naming
 from schema import Config, GenerationRequest, GenerationResponse
 
 
 # Constants
 API_ENDPOINT = os.environ.get("API_ENDPOINT", "http://localhost:8000/api/generate")
-
 
 def generate(prompt_text, context, length):
     request = GenerationRequest(

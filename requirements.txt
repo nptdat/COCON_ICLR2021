@@ -15,3 +15,4 @@ PyYAML
 pydantic
 requests
 fastapi
+uvicorn
