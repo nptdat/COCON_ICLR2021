@@ -24,6 +24,8 @@ GPT2_PRETRAINED_MODEL_ARCHIVE_MAP = {
     "gpt2-large": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-large-pytorch_model.bin",
     "gpt2-xl": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-xl-pytorch_model.bin",
     "distilgpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/distilgpt2-pytorch_model.bin",
+    "colorfulscoop/gpt2-small-ja": "https://huggingface.co/colorfulscoop/gpt2-small-ja/resolve/main/pytorch_model.bin",
+    "rinna/japanese-gpt2-medium": "https://huggingface.co/rinna/japanese-gpt2-medium/resolve/main/pytorch_model.bin"
 }
 
 
@@ -231,15 +233,15 @@ class Block(nn.Module):
                     first_latent_var = x_ln_1.var(1)
 
             x_1_output = x_ln_1
-            
+
             output_attn = self.attn(
                 x_1_output, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask
             )
 
             a = output_attn[0]  # output_attn: a, present, (attentions)
-            
+
             x = x + a
-            
+
             input_ln_2 = x
 
         if return_point == 'attn':
@@ -250,7 +252,7 @@ class Block(nn.Module):
 
         if input_point is None or input_point == 'attn' or input_point == 'ln_1':
             x_ln_2 = self.ln_2(input_ln_2)
-        
+
         if return_point == 'ln_2':
             return x_ln_2
 
@@ -295,7 +297,7 @@ class CoconBlock(nn.Module):
         self.instance_norm = nn.InstanceNorm1d(nx, affine=False, track_running_stats=False)
 
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
-        
+
         self.config = config
 
         self.init_weights()
@@ -328,7 +330,7 @@ class CoconBlock(nn.Module):
         x_1_output = cocon_attn_input_ln_1
 
         output_attn = self.cocon_attn(
-            x_1_output, context_seq, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len, 
+            x_1_output, context_seq, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len,
             context_attn_bias=context_attn_bias, context_seq_len_list=context_seq_len_list
         )
         a = output_attn[0]  # output_attn: (a), present, (attentions)
@@ -358,7 +360,7 @@ class CoconBlock(nn.Module):
         """ Initialize weights if needed. """
         # Initialize weights
         self.apply(self._init_weights)
-        
+
     def _init_weights(self, module):
         """ Initialize the weights.
         """
@@ -444,14 +446,14 @@ class CoconAttention(nn.Module):
                 self_token_mask[unmasked_indices] = 1
 
             w = w * self_token_mask - 1e4 * (1 - self_token_mask)
-            
-        
+
+
         if context_attn_bias != 0:
             if context_seq_len_list is None:
                 context_attn_bias_mask = torch.ones(w.shape) # N, H, Q, V
                 context_attn_bias_mask[:,:,:, :context_seq_len] = 0
                 context_attn_bias_mask = context_attn_bias_mask.to(w.device)
-                w = w + context_attn_bias * (1 - context_attn_bias_mask)     
+                w = w + context_attn_bias * (1 - context_attn_bias_mask)
             else:
                 current_context_start_ind = 0
                 for cs_ind, current_context_seq_len in enumerate(context_seq_len_list):
@@ -462,7 +464,7 @@ class CoconAttention(nn.Module):
                     w = w + current_context_attn_bias * (1 - context_attn_bias_mask)
                     current_context_start_ind = current_context_start_ind + current_context_seq_len
 
-            
+
         if attention_mask is not None:
             # Apply the attention mask
             w = w + attention_mask
@@ -524,7 +526,7 @@ class CoconAttention(nn.Module):
             value = torch.cat((past_value, value), dim=-2)
 
         present = torch.stack((key.transpose(-2, -1), value))  # transpose to have same shapes for stacking
-        attn_outputs = self._attn(query, prepended_key, prepended_value, attention_mask, head_mask, cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len, context_seq_present=context_seq_present, 
+        attn_outputs = self._attn(query, prepended_key, prepended_value, attention_mask, head_mask, cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len, context_seq_present=context_seq_present,
                                     context_seq_len=context_seq_len, context_attn_bias=context_attn_bias, context_seq_len_list=context_seq_len_list)
 
         a = attn_outputs[0]
@@ -736,7 +738,7 @@ class GPT2Model(GPT2PreTrainedModel):
             past = [None] * len(self.h)
         else:
             past_length = past[0][0].size(-2)
-            
+
             # pad layer pasts with None
             if len(past) != len(self.h):
                 layer_past_pads = (None,) * (len(self.h) - len(past))
@@ -750,7 +752,7 @@ class GPT2Model(GPT2PreTrainedModel):
         if position_ids is None:
             if input_ids is not None:
                device = input_ids.device
-            elif inputs_embeds is not None: 
+            elif inputs_embeds is not None:
                device = inputs_embeds.device
             else:
                device = input_hidden_state.device
@@ -812,16 +814,16 @@ class GPT2Model(GPT2PreTrainedModel):
         presents = ()
         all_attentions = []
         all_meanvars = []
-        all_hidden_states = ()     
-        for block_ind, (block, layer_past) in enumerate(zip(self.h, past)):     
+        all_hidden_states = ()
+        for block_ind, (block, layer_past) in enumerate(zip(self.h, past)):
             if input_before_block_ind is not None:
                 if input_point == 'current_block_ln_1' and block_ind == input_before_block_ind:
                     if self.output_hidden_states:
                         all_hidden_states = all_hidden_states + (hidden_states.view(*output_shape),)
-                        
+
                     outputs = block(
                         hidden_states, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask[block_ind], input_point='ln_1'
-                    )                   
+                    )
 
                 elif block_ind >= input_before_block_ind:
                     if self.output_hidden_states:
@@ -840,7 +842,7 @@ class GPT2Model(GPT2PreTrainedModel):
                 if output_after_block_ind is not None and (output_after_block_ind+1 == block_ind) and return_point == 'next_block_ln_1':
                     hidden_states = block(
                         hidden_states, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask[block_ind], return_point='ln_1'
-                    )                               
+                    )
                     hidden_states = hidden_states.view(*output_shape)
                     outputs = (hidden_states,)
                     return outputs
@@ -1037,7 +1039,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
                     output_after_block_ind=output_after_block_ind,
                     return_point=return_point,
                 )
-                hidden_states = transformer_outputs[0] # previously only (hidden_states, ) now (hidden_states, present, .. ) 
+                hidden_states = transformer_outputs[0] # previously only (hidden_states, ) now (hidden_states, present, .. )
                 return transformer_outputs
             elif input_before_block_ind is not None:
                 transformer_outputs = self.transformer(
@@ -1070,7 +1072,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             outputs = (lm_logits,)
         else:
             outputs = (lm_logits,) + transformer_outputs[1:]
-            
+
         if labels is not None:
             # Shift so that tokens < n predict n
             shift_logits = lm_logits[..., lm_logit_first_index:lm_logit_last_index, :].contiguous() # default lm_logit_first_index=0, lm_logit_last_index=-1,
@@ -1214,7 +1216,7 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
         return outputs  # (lm loss), (mc loss), lm logits, mc logits, presents, (all hidden_states), (attentions)
 
 class HDiscriminator(nn.Module):
-    def __init__(self, config, filter_widths=[1,2,3], conv_out_channel=128, dropout_prob=0.5): 
+    def __init__(self, config, filter_widths=[1,2,3], conv_out_channel=128, dropout_prob=0.5):
         super().__init__()
         nx = config.n_embd
         self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=False)
@@ -1242,11 +1244,11 @@ class HDiscriminator(nn.Module):
             conv_output = self.maxpool(conv_output) # [N,C,1]
             conv_output = self.relu(conv_output)
             conv_outputs.append(conv_output.reshape(-1, conv_output.shape[1]))
-        
+
         fc_input = torch.cat(conv_outputs, dim=1)
         fc_input = self.dropout(fc_input)
         logits = self.fc(fc_input)
-                            
+
         if labels is not None:
             loss = self.loss_fn(logits, labels) # logits, labels both have to be of shape [N,]
             output = (loss, logits)
@@ -1259,7 +1261,7 @@ class HDiscriminator(nn.Module):
         """ Initialize weights if needed. """
         # Initialize weights
         self.apply(self._init_weights)
-        
+
     def _init_weights(self, module):
         """ Initialize the weights.
         """

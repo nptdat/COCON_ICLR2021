@@ -6,6 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile_api
     image: "cocon_text_generation_api:v1.0.0"
+    environment:
+      - DEVICE=cuda:0
     ports:
       - "8000:8000"
     volumes:

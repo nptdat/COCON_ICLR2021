@@ -1,2 +1,2 @@
-from .config import Config
+from .config import ModelConfig, Config
 from .generation import GenerationRequest, GenerationResponse

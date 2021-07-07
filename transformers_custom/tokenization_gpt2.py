@@ -40,6 +40,7 @@ PRETRAINED_VOCAB_FILES_MAP = {
         "gpt2-large": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-large-vocab.json",
         "gpt2-xl": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-xl-vocab.json",
         "distilgpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/distilgpt2-vocab.json",
+        # "colorfulscoop/gpt2-small-ja": "https://huggingface.co/colorfulscoop/gpt2-small-ja/resolve/main/pytorch_model.bin"
     },
     "merges_file": {
         "gpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-merges.txt",
@@ -56,6 +57,8 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     "gpt2-large": 1024,
     "gpt2-xl": 1024,
     "distilgpt2": 1024,
+    "colorfulscoop/gpt2-small-ja": 768,
+    "rinna/japanese-gpt2-medium": 1024,
 }
 
 

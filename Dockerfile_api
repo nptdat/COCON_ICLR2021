@@ -10,7 +10,7 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY transformers transformers
+COPY transformers_custom transformers_custom
 COPY schema schema
 COPY utils utils
 COPY mygenerate.py .
