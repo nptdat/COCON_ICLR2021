@@ -10,11 +10,11 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY transformers transformers
+COPY transformers_custom transformers_custom
 COPY schema schema
 COPY utils utils
 COPY mygenerate.py .
-COPY demo_app.py .
+COPY demo_api.py .
 
-CMD [ "streamlit", "run", "demo_app.py" ]
-EXPOSE 8501
+CMD ["uvicorn", "demo_api:app", "--host", "0.0.0.0"]
+EXPOSE 8000

@@ -6,7 +6,7 @@ import random
 
 import torch
 from torch.utils.data import Dataset
-from transformers import (
+from transformers_custom import (
     PreTrainedTokenizer,
 )
 from tqdm import tqdm

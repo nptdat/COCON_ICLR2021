@@ -5,7 +5,7 @@ import torch
 logger = getLogger(__name__)
 
 
-def generate_topic(prompt_text, context, length, model, cocon_block, tokenizer, args, device):
+def generate_with_topic(prompt_text, context, length, model, cocon_block, tokenizer, args, device):
     prompt_seq = tokenizer.encode(
         tokenizer.bos_token + prompt_text,
         add_special_tokens=False,

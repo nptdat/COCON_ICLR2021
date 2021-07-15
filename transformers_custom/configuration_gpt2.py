@@ -29,6 +29,8 @@ GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP = {
     "gpt2-large": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-large-config.json",
     "gpt2-xl": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-xl-config.json",
     "distilgpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/distilgpt2-config.json",
+    "colorfulscoop/gpt2-small-ja": "https://huggingface.co/colorfulscoop/gpt2-small-ja/resolve/main/config.json",
+    "rinna/japanese-gpt2-medium": "https://huggingface.co/rinna/japanese-gpt2-medium/resolve/main/config.json"
 }
 
 

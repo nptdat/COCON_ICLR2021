@@ -1,9 +1,56 @@
-generate_length: 20
-temperature: 1.0
-k: 0
-p: 0.9
-repetition_penalty: 1.0
-num_return_sequences: 1
-output_hidden_for_cocon_after_block_ind: 6
-use_only_last_cocon_output_for_ar: false
-context_attn_bias: -10
+models:
+  - model_id: en_gpt2_medium
+    enabled: true
+    model_display_name: English(gpt2-medium)
+    model_name: gpt2-medium
+    cocon_block_model: models/COCON/cocon_block_pytorch_model.bin
+    config_class: GPT2Config
+    tokenizer_class: GPT2Tokenizer
+    model_class: GPT2LMHeadModel
+    generate_length: 20
+    temperature: 1.0
+    k: 0
+    p: 0.9
+    repetition_penalty: 1.0
+    num_return_sequences: 1
+    output_hidden_for_cocon_after_block_ind: 6
+    use_only_last_cocon_output_for_ar: false
+    context_attn_bias: -10
+
+  - model_id: ja_gpt2_rinna_medium
+    enabled: true
+    model_display_name: 日本語(rinna-gpt2-medium)
+    model_name: rinna/japanese-gpt2-medium
+    cocon_block_model: models/COCON_ja_news_rinna/cocon_block_pytorch_model.bin
+    config_class: GPT2Config
+    tokenizer_class: T5Tokenizer
+    model_class: GPT2LMHeadModel
+    generate_length: 20
+    temperature: 1.0
+    k: 0
+    p: 0.9
+    repetition_penalty: 1.0
+    num_return_sequences: 1
+    output_hidden_for_cocon_after_block_ind: 6
+    use_only_last_cocon_output_for_ar: false
+    context_attn_bias: -5
+
+  - model_id: ja_gpt2_colorfulscoop_small
+    enabled: true
+    model_display_name: 日本語(colorfulscoop-gpt2-small)
+    model_name: colorfulscoop/gpt2-small-ja
+    cocon_block_model: models/COCON_ja_news_colorfulscoop/cocon_block_pytorch_model.bin
+    config_class: GPT2Config
+    tokenizer_class: AutoTokenizer
+    model_class: GPT2LMHeadModel
+    generate_length: 20
+    temperature: 1.0
+    k: 0
+    p: 0.9
+    repetition_penalty: 1.0
+    num_return_sequences: 1
+    output_hidden_for_cocon_after_block_ind: 6
+    use_only_last_cocon_output_for_ar: false
+    context_attn_bias: -10
+n_gpu: 1
+seed: 42

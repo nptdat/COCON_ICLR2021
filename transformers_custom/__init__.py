@@ -115,6 +115,7 @@ from .tokenization_auto import AutoTokenizer
 # from .tokenization_distilbert import DistilBertTokenizer, DistilBertTokenizerFast
 # from .tokenization_flaubert import FlaubertTokenizer
 from .tokenization_gpt2 import GPT2Tokenizer, GPT2TokenizerFast
+from .tokenization_bert_generation import BertGenerationTokenizer
 from .tokenization_openai import OpenAIGPTTokenizer, OpenAIGPTTokenizerFast
 # from .tokenization_roberta import RobertaTokenizer, RobertaTokenizerFast
 # from .tokenization_t5 import T5Tokenizer

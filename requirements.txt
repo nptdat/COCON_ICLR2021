@@ -13,3 +13,8 @@ regex
 streamlit
 PyYAML
 pydantic
+requests
+fastapi
+uvicorn
+transformers==4.3.3
+sentencepiece==0.1.96

@@ -1,82 +1,67 @@
-from logging import getLogger, basicConfig
+"""
+Usage:
+```
+$ streamlit run demo_app.py
+```
 
-import torch
-from transformers import (
-    GPT2Config,
-    GPT2Tokenizer,
-    GPT2LMHeadModel,
-    CoconBlock
-)
+Then access `http://localhost:8501`
+"""
+
+import os
+
 import streamlit as st
 import yaml
+import requests
 
-from utils.utils import set_seed, fix_state_dict_naming
-from mygenerate import generate_topic
-from schema import Config
-
-
-basicConfig(level="INFO")
-logger = getLogger(__name__)
+from schema import Config, GenerationRequest, GenerationResponse
 
 
 # Constants
-device = "cuda:0" if torch.cuda.is_available() else "cpu:0"
-model_name = "gpt2-medium"
+API_ENDPOINT = os.environ.get("API_ENDPOINT", "http://localhost:8000/api/generate")
+# MODEL_NAME2ID = {
+#     "English(gpt2-medium)": "en_gpt2_medium",
+#     "日本語(rinna-gpt2-medium)": "ja_gpt2_rinna_medium",
+#     "日本語(colorfulscoop-gpt2-small)": ""
+# }
 
 
-@st.cache(allow_output_mutation=True, suppress_st_warning=True, max_entries=1)
-def load_model(model_name: str, device: str):
-    logger.info("-------------- Loading models ----------------")
-
-    with open("config.yml", "rt") as f:
-        cfg = Config(**yaml.load(f, yaml.SafeLoader))
-    set_seed(cfg)
-
-    # Load config
-    config = GPT2Config.from_pretrained(model_name)
-
-    # Load tokenizer
-    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-
-    # Load GPT2 model
-    model = GPT2LMHeadModel.from_pretrained(
-        model_name,
-        from_tf=False,
-        config=config,
-        cache_dir=None,
-        output_meanvars=True,
-        compute_meanvars_before_layernorm=False
+def generate(model_id, prompt_text, context, length):
+    request = GenerationRequest(
+        model_id=model_id,
+        prompt_text=prompt_text,
+        context=context,
+        length=length
     )
-    model = model.to(device)
-    model.eval()
 
-    # Load CoconBlock
-    cocon_block = CoconBlock(config.n_ctx, config, scale=True)
-    cocon_state_dict = torch.load("models/COCON/cocon_block_pytorch_model.bin")
-    new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
-    cocon_block.load_state_dict(new_cocon_state_dict)
-    cocon_block = cocon_block.to(device)
-    cocon_block.eval()
-
-    return cfg, tokenizer, model, cocon_block
+    response = GenerationResponse(
+        **requests.post(API_ENDPOINT, json=request.dict()).json()
+    )
+    return response.generated_text
 
 
 if __name__ == "__main__":
-    # UI
-    lang = st.sidebar.radio("Choose language", ["English", "日本語"])
+    with open("config.yml", "rt") as f:
+        cfg = Config(**yaml.load(f, yaml.SafeLoader))
+    model_name2id = {
+        m.model_display_name: m.model_id
+        for m in cfg.models if m.enabled
+    }
+
+    model_name = st.sidebar.radio("Choose model", list(model_name2id.keys()))
     length = st.sidebar.selectbox(
         "Length", [2, 5, 10, 15, 20, 30, 50, 100], index=4
     )
+    st.sidebar.markdown(
+        "※Reference: [COCON paper](https://arxiv.org/abs/2006.03535)",
+        unsafe_allow_html=True
+    )
 
-    # Load models
-    cfg, tokenizer, model, cocon_block = load_model(model_name, device)
-    logger.info("READY!!!")
-
-    if lang == "日本語":
+    model_id = model_name2id.get(model_name, "")
+    if model_id == "":
         st.write("Not support yet")
     else:
-        context = st.text_input('Conditioned context', 'finance')
+        context = st.text_input('Conditioned context/topic', 'finance')
         prompt_text = st.text_input('Prompt text', 'In summary')
         if st.button("Generate text"):
-            gen_text = generate_topic(prompt_text, context, length, model, cocon_block, tokenizer, cfg, device)
+            gen_text = generate(model_id, prompt_text, context, length)
             st.write(gen_text)

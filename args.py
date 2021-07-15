@@ -18,6 +18,17 @@ def get_args():
         "--model_type", type=str, required=True, help="The model architecture to be trained or fine-tuned.",
     )
 
+    # Custom
+    parser.add_argument(
+        "--config_class", default=None, type=str, help="Config class. This parameter has higher priority than model_type in identifying class of the config object.",
+    )
+    parser.add_argument(
+        "--tokenizer_class", default=None, type=str, help="Tokenizer class. This parameter has higher priority than model_type in identifying class of the tokenizer object.",
+    )
+    parser.add_argument(
+        "--model_class", default=None, type=str, help="Model class. This parameter has higher priority than model_type in identifying class of the model object.",
+    )
+
     # Other parameters
     parser.add_argument(
         "--eval_data_file",

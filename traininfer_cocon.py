@@ -31,7 +31,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
-from transformers import (
+from transformers_custom import (
     WEIGHTS_NAME,
     AdamW,
     GPT2Config,
@@ -41,6 +41,10 @@ from transformers import (
     PreTrainedTokenizer,
     CoconBlock,
     HDiscriminator,
+)
+
+from transformers import (
+    AutoTokenizer, T5Tokenizer
 )
 
 from dataset import load_and_cache_examples
@@ -150,22 +154,10 @@ def evaluate_dist_scores(args, model: PreTrainedModel, tokenizer: PreTrainedToke
 
     return result
 
-def fix_state_dict_naming(state_dict):
-    new_state_dict = OrderedDict()
-
-    for key, value in state_dict.items():
-        if 'con2' in key:
-            new_key = key.replace('con2', 'cocon')
-        # new_key = key_transformation(key)
-            new_state_dict[new_key] = value
-        else:
-            new_state_dict[key] = value
-
-    return new_state_dict
-
 
 def main():
     args = get_args()
+    print(f"{args=}")
 
     if args.eval_data_file is None and args.do_eval:
         raise ValueError(
@@ -211,7 +203,19 @@ def main():
     # Set seed
     set_seed(args)
 
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    assert args.model_type or (args.config_class and args.tokenizer_class and args.model_class)
+    if args.model_type and args.model_type in MODEL_CLASSES:
+        config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+    if args.config_class:
+        config_class = eval(args.config_class)
+    if args.tokenizer_class:
+        tokenizer_class = eval(args.tokenizer_class)
+    if args.model_class:
+        model_class = eval(args.model_class)
+
+    logger.info(f"{config_class=}")
+    logger.info(f"{tokenizer_class=}")
+    logger.info(f"{model_class=}")
 
     if args.config_name:
         config = config_class.from_pretrained(args.config_name, cache_dir=args.cache_dir)
@@ -224,12 +228,15 @@ def main():
         tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name, cache_dir=args.cache_dir)
     elif args.model_name_or_path:
         logger.info("Loading tokenizer from pretrained, {}".format(args.model_name_or_path))
+        logger.info(f"{tokenizer_class=}")
         tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, cache_dir=args.cache_dir)
     else:
         raise ValueError(
             "You are instantiating a new {} tokenizer. This is not supported, but you can do it from another script, save it,"
             "and load it from here, using --tokenizer_name".format(tokenizer_class.__name__)
         )
+    if not hasattr(tokenizer, "max_len"):
+        tokenizer.max_len = config.n_positions  # TODO: confirm this: n_positions or n_ctx
 
     if args.block_size <= 0:
         args.block_size = tokenizer.max_len
@@ -313,7 +320,11 @@ def main():
             # Save cocon_block model
             cocon_block_weights_name = "cocon_block_pytorch_model.bin"
             output_cocon_block_model_file = os.path.join(args.output_dir, cocon_block_weights_name)
-            torch.save(cocon_block.state_dict(), output_cocon_block_model_file)
+            torch.save(
+                cocon_block.cpu().state_dict(),
+                output_cocon_block_model_file,
+                _use_new_zipfile_serialization=False
+            )
             logger.info("cocon_block model weights saved in {}".format(output_cocon_block_model_file))
 
         # Good practice: save your training arguments together with the trained model
@@ -360,9 +371,9 @@ def main():
             cocon_block_weights_name = "cocon_block_pytorch_model.bin"
             output_cocon_block_model_file = os.path.join(args.output_dir, cocon_block_weights_name)
 
-            cocon_state_dict = torch.load(output_cocon_block_model_file)
-            new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
-            cocon_block.load_state_dict(new_cocon_state_dict)
+            # cocon_state_dict = torch.load(output_cocon_block_model_file)
+            # new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
+            cocon_block.load_state_dict(torch.load(output_cocon_block_model_file))
 
             model.to(args.device)
             cocon_block.to(args.device)
