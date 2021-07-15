@@ -600,14 +600,11 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         eos_token_ids=None,
         length_penalty=None,
         num_return_sequences=None,
-        style_source_inputs=None,
-        mu_s=None,
-        sigma_s=None,
         do_cocon=False,
         cocon_block=None,
         cocon_context_inputs=None,
         cocon_history_inputs=None,
-        cocon_after_block_ind=None, 
+        cocon_after_block_ind=None,
         transform_h_after_layernorm=False,
         termination_token_id=None,
         use_only_last_cocon_output_for_ar=False,
@@ -853,9 +850,9 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         cocon_block=None,
         cocon_context_inputs=None,
         cocon_history_inputs=None,
-        cocon_after_block_ind=None, 
-        transform_h_after_layernorm=False,    
-        termination_token_id=None,  
+        cocon_after_block_ind=None,
+        transform_h_after_layernorm=False,
+        termination_token_id=None,
         use_only_last_cocon_output_for_ar=False,
         context_attn_bias=0,
     ):
@@ -871,7 +868,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         with torch.no_grad():
             if type(cocon_context_inputs) != list:
                 context_seq_len_list = None
-                if transform_h_after_layernorm:                    
+                if transform_h_after_layernorm:
                     context_seq_hidden_states = self(cocon_context_inputs, output_after_block_ind=cocon_after_block_ind, return_point='next_block_ln_1')[0]  # [N, L, C]
                 else:
                     context_seq_hidden_states = self(cocon_context_inputs, output_after_block_ind=cocon_after_block_ind)[0]  # [N, L, C]
@@ -883,7 +880,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 else:
                     context_seq_len_list = None
                 for cocon_context_input in cocon_context_inputs:
-                    if transform_h_after_layernorm:                    
+                    if transform_h_after_layernorm:
                         context_seq_hidden_state = self(cocon_context_input, output_after_block_ind=cocon_after_block_ind, return_point='next_block_ln_1')[0]  # [N, L, C]
                     else:
                         context_seq_hidden_state = self(cocon_context_input, output_after_block_ind=cocon_after_block_ind)[0]  # [N, L, C]
@@ -891,11 +888,11 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
 
                     if type(cocon_context_inputs) == list:
                         context_seq_len_list.append(context_seq_hidden_state.shape[1])
-                        
+
                 context_seq_hidden_states = torch.cat(context_seq_hidden_state_list, dim=1)
 
 
-            if transform_h_after_layernorm:                    
+            if transform_h_after_layernorm:
                 history_seq_hidden_states = self(cocon_history_inputs, output_after_block_ind=cocon_after_block_ind, return_point='next_block_ln_1')[0]  # [N, L, C]
             else:
                 history_seq_hidden_states = self(cocon_history_inputs, output_after_block_ind=cocon_after_block_ind)[0]  # [N, L, C]
@@ -1396,7 +1393,7 @@ class Conv1D(nn.Module):
         self.bias = nn.Parameter(torch.zeros(nf))
 
     def forward(self, x):
-        size_out = x.size()[:-1] + (self.nf,)        
+        size_out = x.size()[:-1] + (self.nf,)
         x = torch.addmm(self.bias, x.reshape(-1, x.size(-1)), self.weight)
         x = x.view(*size_out)
         return x

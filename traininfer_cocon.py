@@ -371,9 +371,9 @@ def main():
             cocon_block_weights_name = "cocon_block_pytorch_model.bin"
             output_cocon_block_model_file = os.path.join(args.output_dir, cocon_block_weights_name)
 
-            cocon_state_dict = torch.load(output_cocon_block_model_file)
-            new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
-            cocon_block.load_state_dict(new_cocon_state_dict)
+            # cocon_state_dict = torch.load(output_cocon_block_model_file)
+            # new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
+            cocon_block.load_state_dict(torch.load(output_cocon_block_model_file))
 
             model.to(args.device)
             cocon_block.to(args.device)

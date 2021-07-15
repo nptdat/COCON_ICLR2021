@@ -1,6 +1,7 @@
 models:
   - model_id: en_gpt2_medium
     enabled: true
+    model_display_name: English(gpt2-medium)
     model_name: gpt2-medium
     cocon_block_model: models/COCON/cocon_block_pytorch_model.bin
     config_class: GPT2Config
@@ -15,8 +16,10 @@ models:
     output_hidden_for_cocon_after_block_ind: 6
     use_only_last_cocon_output_for_ar: false
     context_attn_bias: -10
+
   - model_id: ja_gpt2_rinna_medium
-    enabled: false
+    enabled: true
+    model_display_name: 日本語(rinna-gpt2-medium)
     model_name: rinna/japanese-gpt2-medium
     cocon_block_model: models/COCON_ja_news_rinna/cocon_block_pytorch_model.bin
     config_class: GPT2Config
@@ -30,9 +33,11 @@ models:
     num_return_sequences: 1
     output_hidden_for_cocon_after_block_ind: 6
     use_only_last_cocon_output_for_ar: false
-    context_attn_bias: -10
+    context_attn_bias: -5
+
   - model_id: ja_gpt2_colorfulscoop_small
-    enabled: false
+    enabled: true
+    model_display_name: 日本語(colorfulscoop-gpt2-small)
     model_name: colorfulscoop/gpt2-small-ja
     cocon_block_model: models/COCON_ja_news_colorfulscoop/cocon_block_pytorch_model.bin
     config_class: GPT2Config

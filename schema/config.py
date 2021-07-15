@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class ModelConfig(BaseModel):
     model_id: str
     enabled: bool
+    model_display_name: str
     model_name: str
     cocon_block_model: str
     config_class: str

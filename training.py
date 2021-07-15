@@ -8,7 +8,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
-from transformers import (
+from transformers_custom import (
     AdamW,
     PreTrainedModel,
     PreTrainedTokenizer,

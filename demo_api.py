@@ -38,8 +38,6 @@ logger = getLogger(__name__)
 
 # Constants
 DEVICE = os.environ.get("DEVICE", "cuda:0") if torch.cuda.is_available() else "cpu:0"
-MODEL_NAME = "gpt2-medium"
-COCON_BLOCK_MODEL_PATH = "models/COCON/cocon_block_pytorch_model.bin"
 
 
 def load_model():
@@ -54,18 +52,23 @@ def load_model():
     models = {}
     for cfg_model in cfg.models:
         model_id = cfg_model.model_id
+        logger.info(f"--- Model: {model_id}")
 
         if not cfg_model.enabled:
-            logger.info(f"Skipped the model {model_id}!")
+            logger.info(f"Skipped!")
             continue
 
         # Load config
         config_class = eval(cfg_model.config_class)
         config = config_class.from_pretrained(cfg_model.model_name)
+        logger.info(f"--- config_class: {config_class}")
+        logger.info(f"--- model_name: {cfg_model.model_name}")
 
         # Load tokenizer
         tokenizer_class = eval(cfg_model.tokenizer_class)
         tokenizer = tokenizer_class.from_pretrained(cfg_model.model_name)
+        logger.info(f"--- tokenizer_class: {tokenizer_class}")
+        logger.info(f"--- model_name: {cfg_model.model_name}")
 
         # Load GPT2 model
         model_class = eval(cfg_model.model_class)
@@ -79,14 +82,17 @@ def load_model():
         )
         model = model.to(DEVICE)
         model.eval()
+        logger.info(f"--- model_class: {model_class}")
+        logger.info(f"--- model_name: {cfg_model.model_name}")
 
         # Load CoconBlock
         cocon_block = CoconBlock(config.n_ctx, config, scale=True)
-        cocon_state_dict = torch.load(COCON_BLOCK_MODEL_PATH)
+        cocon_state_dict = torch.load(cfg_model.cocon_block_model)
         new_cocon_state_dict = fix_state_dict_naming(cocon_state_dict)
         cocon_block.load_state_dict(new_cocon_state_dict)
         cocon_block = cocon_block.to(DEVICE)
         cocon_block.eval()
+        logger.info(f"--- cocon_block_model: {cfg_model.cocon_block_model}")
 
         models[model_id] = dict(
             cfg=cfg_model,

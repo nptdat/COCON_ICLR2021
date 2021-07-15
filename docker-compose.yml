@@ -26,3 +26,5 @@ services:
       - API_ENDPOINT=http://api:8000/api/generate
     ports:
       - "8501:8501"
+    volumes:
+      - ./config.yml:/app/config.yml
