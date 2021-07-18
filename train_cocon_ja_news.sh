@@ -1,16 +1,13 @@
 #!/bin/sh
 
-export TRAIN_FILE=data/ja_news/medium-260k.train.jsonl
-export TEST_FILE=data/ja_news/medium-260k.test.jsonl
+export TRAIN_FILE=data/gpt2output/medium-345M-k40.train.jsonl
+export TEST_FILE=data/gpt2output/medium-345M-k40.test.jsonl
 
 python traininfer_cocon.py \
     --do_train \
-    --output_dir=models/COCON_ja_news_colorfulscoop \
+    --output_dir=models/COCON_ja_news \
     --model_type=gpt2 \
-    --config_class=GPT2Config \
-    --tokenizer_class=AutoTokenizer \
-    --model_class=GPT2LMHeadModel \
-    --model_name_or_path=colorfulscoop/gpt2-small-ja \
+    --model_name_or_path=gpt2-medium \
     --train_data_file=$TRAIN_FILE \
     --eval_data_file=$TEST_FILE \
     --per_gpu_train_batch_size 8 \
