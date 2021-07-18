@@ -5,7 +5,7 @@ export TEST_FILE=data/gpt2output/medium-345M-k40.test.jsonl
 
 python traininfer_cocon.py \
     --do_train \
-    --output_dir=models/COCON_ja_news \
+    --output_dir=models/COCON \
     --model_type=gpt2 \
     --model_name_or_path=gpt2-medium \
     --train_data_file=$TRAIN_FILE \
