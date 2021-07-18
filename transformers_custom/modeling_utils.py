@@ -701,21 +701,19 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
                 "Please use another model class (e.g. `OpenAIGPTLMHeadModel`, `XLNetLMHeadModel`, `GPT2LMHeadModel`, `CTRLLMHeadModel`, `T5WithLMHeadModel`, `TransfoXLLMHeadModel`)"
             )
 
-        max_length = max_length if max_length is not None else self.config.max_length
-        do_sample = do_sample if do_sample is not None else self.config.do_sample
-        num_beams = num_beams if num_beams is not None else self.config.num_beams
-        temperature = temperature if temperature is not None else self.config.temperature
-        top_k = top_k if top_k is not None else self.config.top_k
-        top_p = top_p if top_p is not None else self.config.top_p
-        repetition_penalty = repetition_penalty if repetition_penalty is not None else self.config.repetition_penalty
-        bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
-        pad_token_id = pad_token_id if pad_token_id is not None else self.config.pad_token_id
-        eos_token_ids = eos_token_ids if eos_token_ids is not None else self.config.eos_token_ids
+        max_length = max_length or self.config.max_length
+        do_sample = do_sample or self.config.do_sample
+        num_beams = num_beams or self.config.num_beams
+        temperature = temperature or self.config.temperature
+        top_k = top_k or self.config.top_k
+        top_p = top_p or self.config.top_p
+        repetition_penalty = repetition_penalty or self.config.repetition_penalty
+        bos_token_id = bos_token_id or self.config.bos_token_id
+        pad_token_id = pad_token_id or self.config.pad_token_id
+        eos_token_ids = eos_token_ids or self.config.eos_token_ids
 
-        length_penalty = length_penalty if length_penalty is not None else self.config.length_penalty
-        num_return_sequences = (
-            num_return_sequences if num_return_sequences is not None else self.config.num_return_sequences
-        )
+        length_penalty = length_penalty or self.config.length_penalty
+        num_return_sequences = num_return_sequences or self.config.num_return_sequences
 
         if input_ids is not None:
             batch_size = input_ids.shape[0]  # overriden by the input batch_size
@@ -862,9 +860,6 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
         unfinished_sents = input_ids.new(batch_size).fill_(1)
         sent_lengths = input_ids.new(batch_size).fill_(max_length)
 
-        past = None
-
-
         with torch.no_grad():
             if type(cocon_context_inputs) != list:
                 context_seq_len_list = None
@@ -935,10 +930,6 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin):
 
 
             next_token_logits = outputs[0][:, -1, :] # no loss in output[0] if label is None
-
-            # if model has past, then set the past variable to speed up decoding
-            if self._do_output_past(outputs):
-                past = outputs[1]
 
             # repetition penalty from CTRL paper (https://arxiv.org/abs/1909.05858)
             if repetition_penalty != 1.0:

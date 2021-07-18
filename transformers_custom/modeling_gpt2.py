@@ -208,11 +208,10 @@ class Block(nn.Module):
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.mlp = MLP(4 * nx, config)
-        self.instance_norm = nn.InstanceNorm1d(nx, affine=False, track_running_stats=False)
         self.output_meanvars = output_meanvars
         self.compute_meanvars_before_layernorm = compute_meanvars_before_layernorm
 
-    def forward(self, x, layer_past=None, attention_mask=None, head_mask=None, adaIN=False, adaIN_vector=None, adaIN_before_ln=False, return_point=None, input_point=None):
+    def forward(self, x, layer_past=None, attention_mask=None, head_mask=None, return_point=None, input_point=None):
         if input_point is None:
             input_ln_1 = x
 
@@ -239,9 +238,7 @@ class Block(nn.Module):
             )
 
             a = output_attn[0]  # output_attn: a, present, (attentions)
-
             x = x + a
-
             input_ln_2 = x
 
         if return_point == 'attn':
@@ -267,10 +264,7 @@ class Block(nn.Module):
                 second_latent_mean = x_ln_2.mean(1)
                 second_latent_var = x_ln_2.var(1)
 
-        x_2_output = x_ln_2
-
-        m = self.mlp(x_2_output)
-
+        m = self.mlp(x_ln_2)
         x = x + m
 
         if self.output_meanvars:
@@ -294,15 +288,16 @@ class CoconBlock(nn.Module):
         self.cocon_attn = CoconAttention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.mlp = MLP(4 * nx, config)
-        self.instance_norm = nn.InstanceNorm1d(nx, affine=False, track_running_stats=False)
-
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
 
         self.config = config
 
         self.init_weights()
 
-    def forward(self, x, context_seq=None, history_seq=None, layer_past=None, attention_mask=None, head_mask=None, include_sos_output=False, cs_masked_indices=None, tis_masked_indices=None, cs_self_attn_mask_prob=0, context_attn_bias=0, context_seq_len_list=None):
+    def forward(self, x, context_seq=None, history_seq=None, layer_past=None,
+                attention_mask=None, head_mask=None, include_sos_output=False,
+                cs_masked_indices=None, tis_masked_indices=None, cs_self_attn_mask_prob=0,
+                context_attn_bias=0, context_seq_len_list=None):
         if cs_masked_indices is not None and context_seq is not None:
             context_seq = context_seq.clone() # avoid overwrite original context_seq with mask_h
             context_seq[cs_masked_indices] = self.mask_h
@@ -330,7 +325,9 @@ class CoconBlock(nn.Module):
         x_1_output = cocon_attn_input_ln_1
 
         output_attn = self.cocon_attn(
-            x_1_output, context_seq, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len,
+            x_1_output, context_seq, layer_past=layer_past,
+            attention_mask=attention_mask, head_mask=head_mask,
+            cs_self_attn_mask_prob=cs_self_attn_mask_prob, history_seq_len=history_seq_len,
             context_attn_bias=context_attn_bias, context_seq_len_list=context_seq_len_list
         )
         a = output_attn[0]  # output_attn: (a), present, (attentions)
@@ -341,10 +338,8 @@ class CoconBlock(nn.Module):
         if history_seq_len > 1:
             x = x[:, history_seq_len-1:]
 
-
         x_ln_2 = self.ln_2(x)
-        x_2_output = x_ln_2
-        m = self.mlp(x_2_output)
+        m = self.mlp(x_ln_2)
         # H^L
         x = x + m
 
@@ -639,8 +634,6 @@ class GPT2Model(GPT2PreTrainedModel):
 
         self.output_meanvars = output_meanvars
         self.compute_meanvars_before_layernorm = compute_meanvars_before_layernorm
-
-        self.instance_norm = nn.InstanceNorm1d(config.n_embd, affine=False, track_running_stats=False)
         self.n_layer = config.n_layer
         self.init_weights()
 
@@ -671,9 +664,6 @@ class GPT2Model(GPT2PreTrainedModel):
         input_hidden_state=None,
         input_before_block_ind=None,
         output_after_block_ind=None,
-        adaIN=False,
-        adaIN_vector=None,
-        adaIN_before_ln=False,
         input_point=None, # 'current_block_ln_1' or None
         return_point=None, # 'next_block_ln_1' or None
     ):
@@ -971,8 +961,6 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         input_hidden_state=None,
         input_before_block_ind=None,
         output_after_block_ind=None,
-        adaIN=False,
-        adaIN_vector=None,
         input_point=None,
         return_point=None,
         lm_logit_first_index=0,
